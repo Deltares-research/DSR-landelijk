@@ -1,0 +1,6 @@
+# project variables
+
+[links]
+url_rijkswateren = "https://geo.rijkswaterstaat.nl/services/ogc/gdr/nnn_begrenzing_rijkswateren/ows?service=WFS&version=2.0.0&request=GetFeature&typeName=natuurnetwerk_nederland_begrenzing_rijkswateren&outputFormat=json&content-disposition=attachment"
+url_oppervlaktewaterlichamen = "https://service.pdok.nl/ihw/krw-oppervlaktewaterlichamen-geharmoniseerd/atom/downloads/INSPIRESurfaceWaterBody.gml"
+
