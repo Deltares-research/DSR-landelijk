@@ -26,7 +26,9 @@ allLatestObs <- map(
 ) |>
   bind_rows()
 
-saveRDS(allLatestObs, file = "data/processed/metadata/all_latest_observations_wadar.rds")
+# saveRDS(allLatestObs, file = "data/processed/metadata/all_latest_observations_wadar.rds")
+
+table(allLatestObs$COMPARTIMENTCODE)
 
 allLatestObs |>
   sf::st_transform(4326) |>
@@ -36,7 +38,7 @@ allLatestObs |>
     group = "meetpunten", 
     radius = 4,
     color = "green",
-    label = ~paste(NAAM, PARAMETER_WAT_OMSCHRIJVING, year(TIJDSTIP_LAATSTE_METING)),
+    label = ~paste(NAAM, PARAMETER_WAT_OMSCHRIJVING),
     clusterOptions = markerClusterOptions(spiderfyOnMaxZoom = TRUE)
   )
 
@@ -44,54 +46,30 @@ allLatestObs |>
 ## Intersection with waterlichamen/watersystemen Rijkswateren
 
 # urls staan in variables.yml
-config <- RcppTOML::parseToml("_variables.TOML") %>% list_flatten
-config$links_url_rijkswateren
+variables <- RcppTOML::parseToml("config/variables.TOML") %>% list_flatten
+variables$links_url_rijkswateren
 
-rijkswateren <- st_read(config$links_url_rijkswateren)
+rijkswateren <- st_read(variables$links_url_rijkswateren)
 # rijkswateren %>%
 #   st_transform(4326) %>%
 #   leaflet() %>%
 #   addTiles() %>%
 #   addPolygons()
 
-waterbodies <- st_read(config$links_url_oppervlaktewaterlichamen)
-# waterbodies %>%
-#   st_transform(4326) %>%
-#   leaflet() %>%
-#   addTiles() %>%
-#   addPolygons()
+idx <- !duplicated(allLatestObs[c("NAAM", "CODE", "OMSCHRIJVING")])
 
-latObsAct_sf_rw <- allLatestObs  %>% st_transform(4326) %>%
+latObsAct_sf_rw <- allLatestObs[idx, ] %>% st_transform(4326) %>%
   sf::st_intersection(rijkswateren %>% st_transform(4326)) %>%
   select(
-    locatie_id = id,
-    watersysteemid = identificatie,
+    watersysteem_id = identificatie,
     locatie_naam = NAAM,
     locatie_code = CODE,
-    locatie_omschrijving = OMSCHRIJVING,
-    rw_identificatie = identificatie,
-    PARAMETER_WAT_OMSCHRIJVING,
-    TIJDSTIP_LAATSTE_METING
+    locatie_omschrijving = OMSCHRIJVING
   )
 
-save(latObsAct_sf_rw, file = "koppeling_meetpunten_rijkswateren.Rdata")
-# we hebben vast niet alle kolommen nodig - denk na over weg te gooien kolommen.
+write_delim(latObsAct_sf_rw, file = "config/koppeling_meetpunten_rijkswateren.csv", delim = ";")
 
-# selectere per watersysteem kan dan bijv zo
-
-latObsAct_waddenzee_wh <- latObsAct_sf_rw %>% 
-  filter(grepl("Waddenzee", watersysteemid, ignore.case = T) | grepl("Eems", watersysteemid, ignore.case = T)) %>%
-  filter(grepl("waterhoogte", PARAMETER_WAT_OMSCHRIJVING, ignore.case = T))
-write_csv(latObsAct_waddenzee_wh, "data/interim/md_ws_par/waddenzee_waterhoogtegemeten.csv")
-
-latObsAct_wh <- latObsAct_sf_rw %>% 
-  filter(grepl("waterhoogte", PARAMETER_WAT_OMSCHRIJVING, ignore.case = T))
-write_csv(latObsAct_wh, "data/interim/md_ws_par/waterhoogtegemeten.csv")
-
-
-# continue processing and checks
-
-load("koppeling_meetpunten_rijkswateren.Rdata")
+# visualize coupling
 
 latObsAct_sf_rw %>%
   leaflet() %>%
@@ -104,6 +82,6 @@ latObsAct_sf_rw %>%
     group = "meetpunten", 
     radius = 4,
     color = "green",
-    label = ~paste(locatie_naam, PARAMETER_WAT_OMSCHRIJVING, year(TIJDSTIP_LAATSTE_METING)),
+    label = ~paste(locatie_naam),
     clusterOptions = markerClusterOptions(spiderfyOnMaxZoom = TRUE)
   )
