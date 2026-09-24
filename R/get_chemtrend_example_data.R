@@ -2,9 +2,22 @@
 # loading libraries ------------------------------------------------------
 library(tidyverse)
 library(sf)
+library(RPostgreSQL)
 
 # config -----------------------------------------------------------------
-cfg <- config::get(file = 'config/variables.toml')
+variables <- RcppTOML::parseToml("config/variables.TOML") 
+
+# connect db
+# connect with Deltares WKP database
+drv = dbDriver(variables$database$driver)
+con <- DBI::dbConnect(
+  drv,
+  dbname = "waterkwaliteit_test", # "waterkwaliteit_test"
+  host = variables$database$server,
+  port = variables$database$port,
+  user = rstudioapi::askForPassword("database_userid"),
+  password = rstudioapi::askForPassword("Database password")
+)
 
 # read data --------------------------------------------------------------
-rijkstwateren <- st_read('"https://geo.rijkswaterstaat.nl/services/ogc/gdr/nnn_begrenzing_rijkswateren/ows?service=WFS&version=2.0.0&request=GetFeature&typeName=natuurnetwerk_nederland_begrenzing_rijkswateren&outputFormat=json&content-disposition=attachment"')
+rijkstwateren <- st_read(variables$links$url_rijkswateren)
