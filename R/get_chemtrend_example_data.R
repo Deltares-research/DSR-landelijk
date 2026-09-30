@@ -21,7 +21,7 @@ con <- DBI::dbConnect(
 
 # read data --------------------------------------------------------------
 rijkstwateren <- st_read(variables$links$url_rijkswateren)
-rijkstwateren_selectie <- filter(rijkstwateren, identificatie %in% c('Nederrijn', 'Amsterdam-Rijnkanaal', 'Markermeer'))
+rijkstwateren_selectie <- filter(rijkstwateren, identificatie %in% c('Bergsche Maas', 'Haringvliet', 'Markermeer'))
 
 sql <-
   glue::glue_sql(
@@ -67,13 +67,13 @@ locs <- distinct(data, meetpunt_code_nieuw, x_rd, y_rd) |>
     st_as_sf(coords = c('x_rd', 'y_rd'), crs = 28992) |>
     st_join(select(rijkstwateren_selectie, identificatie))
 data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie))
-
+pars <- c('T', 'Cl', 'Ntot', 'GELDHD', 'Ptot', 'As', 'Cu', 'imdcpd', 'PCB101', 'Flu')
 
 ggplot() + 
   geom_sf(data = rijkstwateren_selectie, aes(geometry = geometry, col  = identificatie)) + 
-  geom_sf(data = locs, aes(geometry = geometry), col = 'red')
+  geom_sf(data = filter(locs, identificatie %in% rijkstwateren_selectie$identificatie), aes(geometry = geometry), col = 'red')
 
-ggplot(filter(data, parameter_code %in% c('pH', 'T', 'ZICHT', 'CHLFa')), aes(x = datum, y = waarden, col = identificatie, group = meetpunt_code_nieuw)) +
+ggplot(filter(data, parameter_code %in% pars, identificatie %in% rijkstwateren_selectie$identificatie), aes(x = datum, y = waarden, col = identificatie, group = meetpunt_code_nieuw)) +
   geom_line() +
   geom_point(size = 0.5) +
   facet_wrap(~parameter_code, scales = 'free')
