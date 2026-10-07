@@ -66,7 +66,8 @@ data <- as_tibble(st_read(con, query = sql))
 locs <- distinct(data, meetpunt_code_nieuw, x_rd, y_rd) |>
     st_as_sf(coords = c('x_rd', 'y_rd'), crs = 28992) |>
     st_join(select(rijkstwateren_selectie, identificatie))
-data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie))
+data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie)) |> 
+  mutate(wns = glue::glue('{parameter_code}_{eenheid_code}_{hoedanigheid_code}_{grootheid}_{compartiment_code}'))
 pars <- c('T', 'Cl', 'Ntot', 'GELDHD', 'Ptot', 'As', 'Cu', 'imdcpd', 'PCB101', 'Flu')
 
 ggplot() + 
@@ -77,3 +78,8 @@ ggplot(filter(data, parameter_code %in% pars, identificatie %in% rijkstwateren_s
   geom_line() +
   geom_point(size = 0.5) +
   facet_wrap(~parameter_code, scales = 'free')
+
+
+# write data to disk -----------------------------------------------------
+qs2::qs_save(data, "data/interim/data_rijkswateren.qs2")
+qs2::qs_save(data_trend, "data/interim/data_trends_rijkswateren.qs2")
