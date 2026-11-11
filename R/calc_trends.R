@@ -125,7 +125,8 @@ df_lows <- left_join(
       !is.na(skendall_trend) ~ skendall_trend,
       TRUE ~ 'niet genoeg data'
     )
-  )
+  ) |> 
+  select(-theilsen_mod, -ths_mod)
 
 # trend gegevens per locatie
 trend_smry_loc <-
