@@ -68,8 +68,7 @@ data <- as_tibble(st_read(con, query = sql))
 locs <- distinct(data, meetpunt_code_nieuw, x_rd, y_rd) |>
     st_as_sf(coords = c('x_rd', 'y_rd'), crs = 28992) |>
     st_join(select(rijkstwateren_selectie, identificatie))
-data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie)) |> 
-  mutate(wns = glue::glue('{parameter_code}_{eenheid_code}_{hoedanigheid_code}_{grootheid}_{compartiment_code}'))
+data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie))
 pars <- c('T', 'Cl', 'Ntot', 'GELDHD', 'Ptot', 'As', 'Cu', 'imdcpd', 'PCB101', 'Flu')
 
 # fix missing grootheden
@@ -102,7 +101,8 @@ data <- rows_patch(
         parameter_code %in% chem_stof$codes ~ 'CONCTTE',
       is.na(grootheid) & eenheid_code %in% c('mg/l', 'ug/l') ~ 'CONCTTE',
       .default = grootheid
-    )
+    ),
+    wns = glue::glue('{parameter_code}_{eenheid_code}_{hoedanigheid_code}_{grootheid}_{compartiment_code}')
   )
 
 ggplot() + 
