@@ -4,7 +4,7 @@ library(tidyverse)
 
 # read data --------------------------------------------------------------
 df_trends <- qs2::qs_read("data/interim/data_trends_rijkswateren.qs2") |> 
-  filter(jaar > 1989, parameter_code %in% 'Ntot') |> 
+  filter(jaar > 1989) |>  # parameter_code %in% 'Ntot'
   mutate(datum_num = as.numeric(datum), 
     datum_maand = ymd(floor_date(datum, 'month')))
 
@@ -30,24 +30,24 @@ df_lows <- df_nest |>
         )
       )
     ),
-    theilsen_mod = map(
-      data,
-      ~ zyp::zyp.sen(
-        formula = waarden ~ datum_num, dataframe = .x
-      )
-    ),
-    theilsen_waarden = map(theilsen_mod, function(m) {
-      tibble(
-        x_val = m$x,
-        y_val = m$y,
-        # Bereken y-hat: intercept + (slope * x)
-        theilsen_y = m$coefficients[["Intercept"]] + (m$coefficients[[2]] * m$x),
-        # Optioneel: bereken ook direct het residu (y - y-hat)
-        # residual = y_val - y_hat
-      )
-    }),
-    theilsen_intercept = map_dbl(theilsen_mod, ~ .x$coefficients[1]),
-    theilsen_slope = map_dbl(theilsen_mod, ~ .x$coefficients[2]),
+    # theilsen_mod = map(
+    #   data,
+    #   ~ zyp::zyp.sen(
+    #     formula = waarden ~ datum_num, dataframe = .x
+    #   )
+    # ),
+    # theilsen_waarden = map(theilsen_mod, function(m) {
+    #   tibble(
+    #     x_val = m$x,
+    #     y_val = m$y,
+    #     # Bereken y-hat: intercept + (slope * x)
+    #     theilsen_y = m$coefficients[["Intercept"]] + (m$coefficients[[2]] * m$x),
+    #     # Optioneel: bereken ook direct het residu (y - y-hat)
+    #     # residual = y_val - y_hat
+    #   )
+    # }),
+    # theilsen_intercept = map_dbl(theilsen_mod, ~ .x$coefficients[1]),
+    # theilsen_slope = map_dbl(theilsen_mod, ~ .x$coefficients[2]),
     median_waarde = map(data, ~ median(.x$waarden)),
     ths_mod = map(
       data,
@@ -66,7 +66,7 @@ df_lows <- df_nest |>
     #     # residual = y_val - y_hat
     #   )
     # })
-  ) |> unnest(c(ths_y, lowline, theilsen_waarden, median_waarde, data))
+  ) |> unnest(c(ths_y, lowline, median_waarde, data))  #theilsen_waarden
 
 # create ts for kendall #
 trends_ts <-
@@ -126,7 +126,7 @@ df_lows <- left_join(
       TRUE ~ 'niet genoeg data'
     )
   ) |> 
-  select(-theilsen_mod, -ths_mod)
+  select(-ths_mod)  #-theilsen_mod,
 
 # trend gegevens per locatie
 trend_smry_loc <-

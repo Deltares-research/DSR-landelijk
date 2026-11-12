@@ -19,6 +19,7 @@ smry_rw <-
     meetpunt_code_nieuw,
     identificatie,
     wns,
+    rw_wns,
     parameter_code,
     eenheid_code,
     hoedanigheid_code,
@@ -32,6 +33,7 @@ smry_rw <-
   ) %>%
   group_by(identificatie,
            wns,
+           rw_wns,
            parameter_code,
            eenheid_code,
            hoedanigheid_code,
@@ -90,7 +92,7 @@ par_nest <-
   par_nest |> mutate(lowess_par = map(data, ~ as_tibble(
     lowess(.x$datum_num, .x$y, f = 2 / 3, delta = 0)
   ))) |> 
-  left_join(select(smry_wbh, identificatie, wns, median_slope, median_intercept, sl95uN, sl95lN, int_95_up, int_95_low, median_waarde, median_ths), by = c('identificatie', 'wns'))
+  left_join(select(smry_rw, identificatie, wns, median_slope, median_intercept, sl95uN, sl95lN, int_95_up, int_95_low, median_waarde, median_ths), by = c('identificatie', 'wns'))
 
 # unnest de data uit het model #
 par_unnested <- par_nest |>  unnest(lowess_par) |>
@@ -154,87 +156,110 @@ lowess_p_25 <- filter(df_lows, low_p == 25) |>
 # combineer de  verschillende lowess lijnen # 
 trends_par <- bind_rows(par_unnested, lowess_p_25, lowess_p_75) %>% 
   mutate(rw_wns = glue::glue('{identificatie}_{wns}'))
+colvec <- c('geen trend' = 'grey70', 'trend opwaarts' = '#F8766D', 'trend neerwaarts' = '#00BA38', 'niet genoeg data' = 'grey50')
 
 for (rwwns in unique(trends_par$rw_wns)) {
   par_filt <- filter(trends_par, rw_wns == rwwns)
   lows_filt <- filter(df_lows, rw_wns == rwwns)
   ehd <- unique(par_filt$eenheid_code[par_filt$rw_wns == rwwns])
-  par = unique(par_filt$parameter_code)
+  par <- unique(par_filt$parameter_code)
+  trnd_cncls <- smry_rw$trend_conclusie[smry_rw$rw_wns == rwwns]
+  low_col <-
+    case_when(
+      trnd_cncls == 'neerwaarts significant' ~ 'forestgreen',
+      trnd_cncls == 'opwaarts significant' ~ 'red2',
+      trnd_cncls == 'niet significant' ~ 'grey20'
+    )
   # xmin <- if_else(min(par_filt$datum, na.rm = TRUE) > xmin, min(par_filt$datum, na.rm = TRUE), xmin)
-  
+  flnm <- rwwns |>
+    gsub("%", "pct", x = _, fixed = TRUE) |> # % behouden als betekenis
+    gsub("/", "", x = _, fixed = TRUE) |> # / kan geen bestandsnaam zijn
+    gsub('[<>:"\\\\|?*]', "_", x = _) |> # overige ongeldige Windows-tekens
+    gsub("\\s+", "_", x = _) |> # spaties -> _
+    gsub("_+", "_", x = _) # dubbele underscores opruimen
+
   #plot per par
   ggplot(data = lows_filt, aes(x = datum, y = y)) +
     geom_line(
-      aes(group = meetpunt_code_nieuw),
-      col = 'grey90',
+      aes(group = meetpunt_code_nieuw, col = trend_conclusie),
+      # col = 'grey90',
       linewidth = 0.2,
       alpha = 1
     ) +
-    geom_line(data = filter(par_filt, p == '0'),
-              aes(y = y),
-              col = 'red') +
+    geom_line(data = filter(par_filt, p == '0'), aes(y = y), col = low_col) +
     geom_line(
       data = filter(par_filt, p == '25'),
       aes(y = y),
-      col = 'red',
+      col = low_col,
       linetype = 'dashed'
     ) +
     geom_line(
       data = filter(par_filt, p == '75'),
       aes(y = y),
-      col = 'red',
+      col = low_col,
       linetype = 'dashed'
     ) +
     coord_cartesian(ylim = c(0, max(par_filt$y) * 1.05)) +
-    labs(x = NULL, y = glue::glue('{par} [{ehd}]')) +
+    labs(x = NULL, y = glue::glue('{par} [{ehd}]'), col = NULL) +
+    scale_color_manual(values = colvec) +
     theme_classic() +
-    theme(panel.grid.major.y = element_line(
-      colour = "grey90",
-      linewidth = 0.5,
-      linetype = "dotted"
-    ))
+    theme(
+      panel.grid.major.y = element_line(
+        colour = "grey90",
+        linewidth = 0.5,
+        linetype = "dotted"
+      )
+    )
   ggsave(
-    filename = glue::glue('{rwwns}_lowess.{device}'),
-    path = 'plots/LOWESS/', 
+    filename = glue::glue('{flnm}_lowess.{device}'),
+    path = glue::glue('plots/LOWESS/{unique(par_filt$identificatie)}'),
     width = width,
     height = height,
     dpi = dpi,
-    device = device
+    device = device,
+    create.dir = TRUE
   )
-  
+
   # theilsen
-  ggplot(data = filter(par_filt, p == '0'), aes(x = datum, y = med_theilsen_y)) +
+  ggplot(
+    data = filter(par_filt, p == '0'),
+    aes(x = datum, y = med_theilsen_y)
+  ) +
     geom_line(
       data = lows_filt,
-      aes(y = ths_y, group = meetpunt_code_nieuw),
-      col = 'grey90',
+      aes(y = ths_y, group = meetpunt_code_nieuw, col = trend_conclusie),
+      # col = 'grey90',
       linewidth = 0.2,
       alpha = 1
     ) +
     geom_ribbon(
       aes(ymin = theilsen_95_low, ymax = theilsen_95_up),
-      fill = 'red',
+      fill = low_col,
       alpha = 0.3
     ) +
     geom_line(col = 'red') +
-    # geom_smooth(method = 'theil_sen') + 
+    # geom_smooth(method = 'theil_sen') +
     # coord_cartesian(ylim = c(min(par_filt$ats_theilsen_95_up, na.rm = TRUE) * 0.8, max(par_filt$ats_theilsen_95_low, na.rm = TRUE) * 1.05)) +
     labs(x = NULL, y = glue::glue('{par} [{ehd}]')) +
+    scale_color_manual(values = colvec) +
     theme_classic() +
-    theme(panel.grid.major.y = element_line(
-      colour = "grey90",
-      linewidth = 0.5,
-      linetype = "dotted"
-    ))
+    theme(
+      panel.grid.major.y = element_line(
+        colour = "grey90",
+        linewidth = 0.5,
+        linetype = "dotted"
+      )
+    )
   ggsave(
     filename = glue::glue(
-      '{rwwns}_theilsen.{device}'
+      '{flnm}_theilsen.{device}'
     ),
-    path = 'plots/Kruisplots/',
+    path = glue::glue('plots/Kruisplots/{unique(par_filt$identificatie)}'),
     width = width,
     height = height,
     dpi = dpi,
-    device = device
+    device = device,
+    create.dir = TRUE
   )
 }
 

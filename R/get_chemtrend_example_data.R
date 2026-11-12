@@ -6,7 +6,9 @@ library(RPostgreSQL)
 
 # config -----------------------------------------------------------------
 variables <- RcppTOML::parseToml("config/variables.TOML") 
-
+pars <- aquodom::dom('parameter')
+grthd <- filter(pars, groep %in% c('Object', 'Typering', 'Grootheid'))
+chem_stof <- filter(pars, groep %in% c('ChemischeStof'))
 # connect db
 # connect with Deltares WKP database
 drv = dbDriver(variables$database$driver)
@@ -69,6 +71,39 @@ locs <- distinct(data, meetpunt_code_nieuw, x_rd, y_rd) |>
 data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie)) |> 
   mutate(wns = glue::glue('{parameter_code}_{eenheid_code}_{hoedanigheid_code}_{grootheid}_{compartiment_code}'))
 pars <- c('T', 'Cl', 'Ntot', 'GELDHD', 'Ptot', 'As', 'Cu', 'imdcpd', 'PCB101', 'Flu')
+
+# fix missing grootheden
+jn_grhd <- filter(data, !is.na(grootheid)) |>
+  distinct(parameter_code, eenheid_code, hoedanigheid_code, grootheid)
+parm_grthd <- distinct(data, parameter_code, grootheid) |>
+  filter(parameter_code == grootheid)
+
+data <- rows_patch(
+  data,
+  jn_grhd,
+  by = c('parameter_code', 'eenheid_code', 'hoedanigheid_code'),
+  unmatched = 'ignore'
+) |>
+  rows_patch(
+    distinct(jn_grhd, parameter_code, eenheid_code, grootheid),
+    by = c('parameter_code', 'eenheid_code'),
+    unmatched = 'ignore'
+  ) |>
+  mutate(
+    grootheid = case_when(
+      parameter_code %in% grthd$codes ~ parameter_code,
+      is.na(grootheid) &
+        parameter_code == 'CHLFa' &
+        eenheid_code == '%' ~ 'VOLMFTE',
+      is.na(grootheid) & eenheid_code == 'mBq/l' ~ 'ACTVTCCTTE',
+      is.na(grootheid) & eenheid_code %in% c('mg/kg', 'umol/kg') ~ 'MASSFTE',
+      is.na(grootheid) &
+        eenheid_code %in% c('mg/l', 'ug/l') &
+        parameter_code %in% chem_stof$codes ~ 'CONCTTE',
+      is.na(grootheid) & eenheid_code %in% c('mg/l', 'ug/l') ~ 'CONCTTE',
+      .default = grootheid
+    )
+  )
 
 ggplot() + 
   geom_sf(data = rijkstwateren_selectie, aes(geometry = geometry, col  = identificatie)) + 

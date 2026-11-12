@@ -54,3 +54,6 @@ rsconnect/
 *.qs2
 *.qs
 *.parquet
+
+# figures files
+*.png
