@@ -1,9 +1,20 @@
 
 # loading libraries ------------------------------------------------------
 library(tidyverse)
+source("R/minio_helpers.R")
+
+s3 <- connect_dsr(
+  access_key ="CGklAIqR8ayasqPDQwG9",
+  secret_key = rstudioapi::askForPassword("password")
+)
 
 # read data --------------------------------------------------------------
 df_trends <- qs2::qs_read("data/interim/data_trends_rijkswateren.qs2") |> 
+  filter(jaar > 1989) |>  # parameter_code %in% 'Ntot'
+  mutate(datum_num = as.numeric(datum), 
+    datum_maand = ymd(floor_date(datum, 'month')))
+
+df_trends <- read_from_dsr("data/interim/data_trends_rijkswateren.qs2") |> 
   filter(jaar > 1989) |>  # parameter_code %in% 'Ntot'
   mutate(datum_num = as.numeric(datum), 
     datum_maand = ymd(floor_date(datum, 'month')))
@@ -160,3 +171,7 @@ trend_smry_loc <-
 arrow::write_parquet(df_lows, 'data/processed/03_data_trend_info.parquet')
 vroom::vroom_write(df_lows, 'data/processed/03_data_trend_info.csv', delim = ',', na = '')
 write_csv2(trend_smry_loc, 'data/processed/trend_info_per_locatie.csv')
+
+# write to bucket
+upload_to_dsr(df_lows, 'data/processed/03_data_trend_info.parquet')
+upload_to_dsr(trend_smry_loc, 'data/processed/trend_info_per_locatie.csv')

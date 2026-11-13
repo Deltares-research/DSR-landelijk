@@ -1,7 +1,12 @@
 # aggregate trend for every Rijkswater
 # loading libraries ------------------------------------------------------
 library(tidyverse)
+source("R/minio_helpers.R")
 
+s3 <- connect_dsr(
+  access_key ="CGklAIqR8ayasqPDQwG9",
+  secret_key = rstudioapi::askForPassword("password")
+)
 ##
 device <- "png"
 dpi <- 300
@@ -11,6 +16,9 @@ xmin <- as_date('1990-01-01')
 
 # read data ---------------------------------------------------------------
 df_lows <- arrow::read_parquet('data/processed/03_data_trend_info.parquet') |> 
+  mutate(rw_wns =  glue::glue('{identificatie}_{wns}'))
+
+df_lows <- read_from_dsr('data/processed/03_data_trend_info.parquet') |> 
   mutate(rw_wns =  glue::glue('{identificatie}_{wns}'))
 
 # create summary per parameteron national scale

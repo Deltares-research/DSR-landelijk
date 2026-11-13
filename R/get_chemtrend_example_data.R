@@ -3,12 +3,10 @@
 library(tidyverse)
 library(sf)
 library(RPostgreSQL)
+source("R/minio_helpers.R")
 
 # config -----------------------------------------------------------------
-variables <- RcppTOML::parseToml("config/variables.TOML") 
-pars <- aquodom::dom('parameter')
-grthd <- filter(pars, groep %in% c('Object', 'Typering', 'Grootheid'))
-chem_stof <- filter(pars, groep %in% c('ChemischeStof'))
+
 # connect db
 # connect with Deltares WKP database
 drv = dbDriver(variables$database$driver)
@@ -22,6 +20,10 @@ con <- DBI::dbConnect(
 )
 
 # read data --------------------------------------------------------------
+variables <- RcppTOML::parseToml("config/variables.TOML") 
+pars <- aquodom::dom('parameter')
+grthd <- filter(pars, groep %in% c('Object', 'Typering', 'Grootheid'))
+chem_stof <- filter(pars, groep %in% c('ChemischeStof'))
 rijkstwateren <- st_read(variables$links$url_rijkswateren)
 rijkstwateren_selectie <- filter(rijkstwateren, identificatie %in% c('Bergsche Maas', 'Haringvliet', 'Markermeer'))
 
@@ -119,44 +121,25 @@ ggplot(filter(data, parameter_code %in% pars, identificatie %in% rijkstwateren_s
 qs2::qs_save(data, "data/interim/data_rijkswateren.qs2")
 qs2::qs_save(data_trend, "data/interim/data_trends_rijkswateren.qs2")
 
-
-## minIO tetst
-Sys.setenv("AWS_ACCESS_KEY_ID" = "CGklAIqR8ayasqPDQwG9", # enter your credentials
-       "AWS_SECRET_ACCESS_KEY" = "MeGIzB7NiWVRMNgteSeiNDDCL6CHwPCJ44A5aDu6", # enter your credentials
-       "AWS_DEFAULT_REGION" = "eu-west-1",
-       "AWS_S3_ENDPOINT" = "s3.deltares.nl:443")    # change it to your specific IP and port
-
-
-
-get_bucket(
-  bucket = "dsr",
-  region = "eu-west-1",
-  url_style = "path",
-  use_https = TRUE,
-  max = 5
+# write to minIo bucket --------------------------------------------------
+s3 <- connect_dsr(
+  access_key = 'CGklAIqR8ayasqPDQwG9',
+  secret_key = rstudioapi::askForPassword("password")
 )
+upload_to_dsr(data, "data/interim/data_rijkswateren.qs2")
+upload_to_dsr(data_trend, "data/interim/data_trends_rijkswateren.qs2")
 
 
-s3 <- s3(
-  config = list(
-    credentials = list(
-      creds = list(
-        access_key_id = "CGklAIqR8ayasqPDQwG9",
-        secret_access_key = "MeGIzB7NiWVRMNgteSeiNDDCL6CHwPCJ44A5aDu6"
-      )
-    ),
-    endpoint =  "https://s3.deltares.nl",
-    region = "eu-west-1",
-    s3_force_path_style = TRUE
-  )
-)
+upload_to_dsr(mtcars, "r-outputs/mtcars.qs2")
 
-tf <- tempfile(fileext = ".csv")
-write.csv(mtcars, tf, row.names = FALSE)
+upload_to_dsr(mtcars, "data/interim/data_rijkswateren.qs2")
+# Stap 2: Upload het bestand als ruwe bytes (readBin)
+tf <- tempfile(fileext = ".rds")
+write_rds(mtcars, tf)
 
 s3$put_object(
   Bucket = "dsr",
-  Key = "r-outputs/mtcars.csv",
-  Body = tf
+  Key = "r-outputs/mtcars.rds",
+  Body = readBin(tf, what = "raw", n = file.info(tf)$size)
 )
 unlink(tf)
