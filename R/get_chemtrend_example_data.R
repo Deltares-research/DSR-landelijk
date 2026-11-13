@@ -118,3 +118,45 @@ ggplot(filter(data, parameter_code %in% pars, identificatie %in% rijkstwateren_s
 # write data to disk -----------------------------------------------------
 qs2::qs_save(data, "data/interim/data_rijkswateren.qs2")
 qs2::qs_save(data_trend, "data/interim/data_trends_rijkswateren.qs2")
+
+
+## minIO tetst
+Sys.setenv("AWS_ACCESS_KEY_ID" = "CGklAIqR8ayasqPDQwG9", # enter your credentials
+       "AWS_SECRET_ACCESS_KEY" = "MeGIzB7NiWVRMNgteSeiNDDCL6CHwPCJ44A5aDu6", # enter your credentials
+       "AWS_DEFAULT_REGION" = "eu-west-1",
+       "AWS_S3_ENDPOINT" = "s3.deltares.nl:443")    # change it to your specific IP and port
+
+
+
+get_bucket(
+  bucket = "dsr",
+  region = "eu-west-1",
+  url_style = "path",
+  use_https = TRUE,
+  max = 5
+)
+
+
+s3 <- s3(
+  config = list(
+    credentials = list(
+      creds = list(
+        access_key_id = "CGklAIqR8ayasqPDQwG9",
+        secret_access_key = "MeGIzB7NiWVRMNgteSeiNDDCL6CHwPCJ44A5aDu6"
+      )
+    ),
+    endpoint =  "https://s3.deltares.nl",
+    region = "eu-west-1",
+    s3_force_path_style = TRUE
+  )
+)
+
+tf <- tempfile(fileext = ".csv")
+write.csv(mtcars, tf, row.names = FALSE)
+
+s3$put_object(
+  Bucket = "dsr",
+  Key = "r-outputs/mtcars.csv",
+  Body = tf
+)
+unlink(tf)
