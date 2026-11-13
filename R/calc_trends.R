@@ -26,7 +26,8 @@ trend_filt <- df_trends |>
 # calc trends ------------------------------------------------------------
 # nest data voor lowess #
 df_nest <- df_trends |>
-  nest(.by = c(meetpunt_code_nieuw, wns))
+  arrange(datum_num) |> 
+  nest(.by = c(meetpunt_code_nieuw, wns)) 
 
 df_lows <- df_nest |>
   mutate(
