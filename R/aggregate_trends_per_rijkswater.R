@@ -187,7 +187,7 @@ for (rwwns in unique(trends_par$rw_wns)) {
     gsub("_+", "_", x = _) # dubbele underscores opruimen
 
   #plot per par
-  ggplot(data = lows_filt, aes(x = datum, y = y)) +
+  plt_lows <- ggplot(data = lows_filt, aes(x = datum, y = y)) +
     geom_line(
       aes(group = meetpunt_code_nieuw, col = trend_conclusie),
       # col = 'grey90',
@@ -219,6 +219,7 @@ for (rwwns in unique(trends_par$rw_wns)) {
       )
     )
   ggsave(
+    plot = plt_lows,
     filename = glue::glue('{flnm}_lowess.{device}'),
     path = glue::glue('plots/LOWESS/{unique(par_filt$identificatie)}'),
     width = width,
@@ -227,9 +228,9 @@ for (rwwns in unique(trends_par$rw_wns)) {
     device = device,
     create.dir = TRUE
   )
-
+upload_to_dsr(plt_lows, glue::glue('plots/LOWESS/{unique(par_filt$identificatie)}/{flnm}_lowess.{device}'), width = width, height = height, dpi = dpi)
   # theilsen
-  ggplot(
+  plt_ths <- ggplot(
     data = filter(par_filt, p == '0'),
     aes(x = datum, y = med_theilsen_y)
   ) +
@@ -259,6 +260,7 @@ for (rwwns in unique(trends_par$rw_wns)) {
       )
     )
   ggsave(
+    plot = plt_ths, 
     filename = glue::glue(
       '{flnm}_theilsen.{device}'
     ),
@@ -269,9 +271,12 @@ for (rwwns in unique(trends_par$rw_wns)) {
     device = device,
     create.dir = TRUE
   )
+  upload_to_dsr(plt_ths, glue::glue('plots/Kruisplots/{unique(par_filt$identificatie)}/{flnm}_theilsen.{device}'), width = width, height = height, dpi = dpi)
+
 }
 
 
 
 # write to disk -----------------------------------------------------------
 write_csv2(smry_rw, 'data/processed/trend_info_per_rijkswater.csv')
+upload_to_dsr(smry_rw, 'data/processed/trend_info_per_rijkswater.csv')
