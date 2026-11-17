@@ -12,7 +12,6 @@ latestObs <- readRDS("data/processed/metadata/all_latest_observations_wadar.rds"
 
 latestObs_simpl <- rwsapi::simplify_df(latestObs %>% st_drop_geometry(), outputFormat = "attributed")
 
-load("koppeling_meetpunten_rijkswateren.Rdata")
 koppeling_meetpunten_rijkswateren <- read_delim("config/koppeling_meetpunten_rijkswateren.csv")
 
 md <- rwsapi::rws_metadata()
@@ -44,15 +43,15 @@ mycatalogue <- catalogue %>%
   filter(
     grepl("", watersysteem_id, ignore.case = T),
     watersysteem_id %in% c('Bergsche Maas', 'Haringvliet', 'Markermeer'),
-    compartiment.code == "OW",
+    compartiment.code %in% c("OW", "ZS"),
     parameter.code %in% c('T', 'Cl', 'Ntot', 'GELDHD', 'Ptot', 'As', 'Cu', 'imdcpd', 'PCB101', 'Flu')
   ) %>%
   st_drop_geometry()
 
 l2 <- rwsapi::rws_observation_queries(
   metadata = mycatalogue,
-  start_date = as.Date("2020-01-01"),
-  end_date = as.Date("2025-03-01")
+  start_date = as.Date("2010-01-01"),
+  end_date = as.Date("2025-12-31")
 )
 
 observations <- lapply(l2, rws_observations)
@@ -62,16 +61,9 @@ obs_df <- dplyr::bind_rows(
          lapply(observations, `[[`, "content"))
 )
 
-obs_df %>% 
-  left_join(
-    koppeling_meetpunten_rijkswateren, 
-    by = c(locatie.code = "locatie_code")) %>%
-  filter(
-  numeriekewaarde < 10000
-) %>%
-  mutate(tijdstip = lubridate::as_datetime(tijdstip)) %>%
-  ggplot(aes(tijdstip, numeriekewaarde)) +
-  geom_point(aes(color = watersysteem_id)) +
-  theme(strip.text.x = element_text(angle = 45)) + 
-  # geom_line(aes(color = watersysteem_id)) +
-  facet_grid(parameter.code ~ locatie.code, scales = "free_y")
+## WEgschrijven als parquet naar p:\11202493--systeemrap-grevelingen\1_data\Rijkswateren\
+
+require(arrow)
+arrow::write_parquet(obs_df, sink = "p:\\11202493--systeemrap-grevelingen\\1_data\\Rijkswateren\\test_data_2025.parquet")
+write_csv(mycatalogue, file = "p:\\11202493--systeemrap-grevelingen\\1_data\\Rijkswateren\\test_metadata_2025.csv")
+

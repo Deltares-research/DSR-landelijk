@@ -10,6 +10,10 @@
 # User-specific files
 .Ruserdata
 
+# Quarto generated files
+.quarto/
+_site/
+
 # Example code in package build process
 *-Ex.R
 
@@ -50,7 +54,7 @@ po/*~
 rsconnect/
 
 # data files
-*.csv
+#  *.csv
 *.qs2
 *.qs
 *.parquet
