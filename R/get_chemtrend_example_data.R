@@ -3,9 +3,9 @@
 library(tidyverse)
 library(sf)
 library(RPostgreSQL)
+source("R/minio_helpers.R")
 
 # config -----------------------------------------------------------------
-variables <- RcppTOML::parseToml("config/variables.TOML") 
 
 # connect db
 # connect with Deltares WKP database
@@ -20,6 +20,10 @@ con <- DBI::dbConnect(
 )
 
 # read data --------------------------------------------------------------
+variables <- RcppTOML::parseToml("config/variables.TOML") 
+pars <- aquodom::dom('parameter')
+grthd <- filter(pars, groep %in% c('Object', 'Typering', 'Grootheid'))
+chem_stof <- filter(pars, groep %in% c('ChemischeStof'))
 rijkstwateren <- st_read(variables$links$url_rijkswateren)
 rijkstwateren_selectie <- filter(rijkstwateren, identificatie %in% c('Bergsche Maas', 'Haringvliet', 'Markermeer'))
 
@@ -66,9 +70,42 @@ data <- as_tibble(st_read(con, query = sql))
 locs <- distinct(data, meetpunt_code_nieuw, x_rd, y_rd) |>
     st_as_sf(coords = c('x_rd', 'y_rd'), crs = 28992) |>
     st_join(select(rijkstwateren_selectie, identificatie))
-data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie)) |> 
-  mutate(wns = glue::glue('{parameter_code}_{eenheid_code}_{hoedanigheid_code}_{grootheid}_{compartiment_code}'))
+data <- left_join(data, select(st_drop_geometry(locs), meetpunt_code_nieuw, identificatie))
 pars <- c('T', 'Cl', 'Ntot', 'GELDHD', 'Ptot', 'As', 'Cu', 'imdcpd', 'PCB101', 'Flu')
+
+# fix missing grootheden
+jn_grhd <- filter(data, !is.na(grootheid)) |>
+  distinct(parameter_code, eenheid_code, hoedanigheid_code, grootheid)
+parm_grthd <- distinct(data, parameter_code, grootheid) |>
+  filter(parameter_code == grootheid)
+
+data <- rows_patch(
+  data,
+  jn_grhd,
+  by = c('parameter_code', 'eenheid_code', 'hoedanigheid_code'),
+  unmatched = 'ignore'
+) |>
+  rows_patch(
+    distinct(jn_grhd, parameter_code, eenheid_code, grootheid),
+    by = c('parameter_code', 'eenheid_code'),
+    unmatched = 'ignore'
+  ) |>
+  mutate(
+    grootheid = case_when(
+      parameter_code %in% grthd$codes ~ parameter_code,
+      is.na(grootheid) &
+        parameter_code == 'CHLFa' &
+        eenheid_code == '%' ~ 'VOLMFTE',
+      is.na(grootheid) & eenheid_code == 'mBq/l' ~ 'ACTVTCCTTE',
+      is.na(grootheid) & eenheid_code %in% c('mg/kg', 'umol/kg') ~ 'MASSFTE',
+      is.na(grootheid) &
+        eenheid_code %in% c('mg/l', 'ug/l') &
+        parameter_code %in% chem_stof$codes ~ 'CONCTTE',
+      is.na(grootheid) & eenheid_code %in% c('mg/l', 'ug/l') ~ 'CONCTTE',
+      .default = grootheid
+    ),
+    wns = glue::glue('{parameter_code}_{eenheid_code}_{hoedanigheid_code}_{grootheid}_{compartiment_code}')
+  )
 
 ggplot() + 
   geom_sf(data = rijkstwateren_selectie, aes(geometry = geometry, col  = identificatie)) + 
@@ -83,3 +120,26 @@ ggplot(filter(data, parameter_code %in% pars, identificatie %in% rijkstwateren_s
 # write data to disk -----------------------------------------------------
 qs2::qs_save(data, "data/interim/data_rijkswateren.qs2")
 qs2::qs_save(data_trend, "data/interim/data_trends_rijkswateren.qs2")
+
+# write to minIo bucket --------------------------------------------------
+s3 <- connect_dsr(
+  access_key = 'CGklAIqR8ayasqPDQwG9',
+  secret_key = rstudioapi::askForPassword("password")
+)
+upload_to_dsr(data, "data/interim/data_rijkswateren.qs2")
+upload_to_dsr(data_trend, "data/interim/data_trends_rijkswateren.qs2")
+
+
+upload_to_dsr(mtcars, "r-outputs/mtcars.qs2")
+
+upload_to_dsr(mtcars, "data/interim/data_rijkswateren.qs2")
+# Stap 2: Upload het bestand als ruwe bytes (readBin)
+tf <- tempfile(fileext = ".rds")
+write_rds(mtcars, tf)
+
+s3$put_object(
+  Bucket = "dsr",
+  Key = "r-outputs/mtcars.rds",
+  Body = readBin(tf, what = "raw", n = file.info(tf)$size)
+)
+unlink(tf)
