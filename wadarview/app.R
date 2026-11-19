@@ -525,36 +525,118 @@ server <- function(input, output, session) {
         
         meta <- selected_metadata()
         
-        # validate(
-        #     need(nrow(meta) == 1, "Station metadata not found")
-        # )
-
         req(nrow(meta) == 1)
-                
+        
+        filters <- c(
+            "compartiment",
+            "grootheid",
+            "parameter",
+            "hoedanigheid",
+            "eenheid"
+        )
+        
+        preview_periods <- c(7L, 30L, 365L)
+        minimum_rows <- 10L
+        
         withProgress(
             message = "Loading preview",
             value = 0,
             {
-                getList <- rws_observation_query(
-                    metadata = meta,
-                    start_date = Sys.Date() - 365,
-                    end_date = Sys.Date(),
-                    filters = c(
-                        "compartiment",
-                        "grootheid",
-                        "parameter",
-                        "hoedanigheid",
-                        "eenheid"
-                    )                    # bij WATHTE moet ook gefiltered worden op ProcesType
-                )
-
-                rws_observations(bodylist = getList)
                 
+                for (i in seq_along(preview_periods)) {
+                    
+                    days <- preview_periods[[i]]
+                    is_final_period <- i == length(preview_periods)
+                    
+                    incProgress(
+                        amount = 1 / length(preview_periods),
+                        detail = paste(
+                            "Checking the last",
+                            days,
+                            "days"
+                        )
+                    )
+                    
+                    query <- rws_observation_query(
+                        metadata = meta,
+                        start_date = Sys.Date() - days,
+                        end_date = Sys.Date(),
+                        filters = filters
+                    )
+                    
+                    response <- tryCatch(
+                        rws_observations(
+                            bodylist = query
+                        ),
+                        error = function(e) {
+                            
+                            showNotification(
+                                paste(
+                                    "Preview request failed:",
+                                    conditionMessage(e)
+                                ),
+                                type = "error",
+                                duration = 8
+                            )
+                            
+                            NULL
+                        }
+                    )
+                    
+                    if (
+                        is.null(response) ||
+                        is.null(response$content) ||
+                        !is.data.frame(response$content)
+                    ) {
+                        next
+                    }
+                    
+                    n <- nrow(response$content)
+                    
+                    # For 7 and 30 days: require at least 10 rows.
+                    # For 365 days: return any non-empty result.
+                    enough_data <- if (is_final_period) {
+                        n > 0L
+                    } else {
+                        n >= minimum_rows
+                    }
+                    
+                    if (enough_data) {
+                        
+                        message(
+                            "Preview returned ",
+                            n,
+                            " observations for the last ",
+                            days,
+                            " days."
+                        )
+                        
+                        return(response)
+                    }
+                    
+                    message(
+                        "Only ",
+                        n,
+                        " observations found for the last ",
+                        days,
+                        " days; trying a longer period."
+                    )
+                }
+                
+                showNotification(
+                    paste(
+                        "No observations found for",
+                        selected_station(),
+                        "during the last year."
+                    ),
+                    type = "warning",
+                    duration = 8
+                )
+                
+                NULL
             }
         )
-        
-    })
-    
+    })    
     #=== empty cache ===========================
     
     observeEvent(preview_data(), {
@@ -632,7 +714,7 @@ server <- function(input, output, session) {
                     numeriekewaarde
                 )
             ) +
-                geom_line()
+                geom_line(aes(color = interaction(bemonsteringshoogte, referentievlak)))
             
         } else {
             
@@ -644,11 +726,13 @@ server <- function(input, output, session) {
                 )
             ) +
                 geom_point(
+                    aes(color = interaction(bemonsteringshoogte, referentievlak)),
                     shape = 21,
                     size = 3,
                     fill = "white"
                 ) +
                 geom_smooth(
+                    aes(color = interaction(bemonsteringshoogte, referentievlak)),
                     method = "loess",
                     span = 0.7,
                     se = TRUE
@@ -670,7 +754,8 @@ server <- function(input, output, session) {
                 ),
                 subtitle = subtitle_text,
                 x = NULL,
-                y = unique(dat$eenheid.code)[1]
+                y = unique(dat$eenheid.code)[1],
+                color = "vert ref; height"
             )        
     })
     
