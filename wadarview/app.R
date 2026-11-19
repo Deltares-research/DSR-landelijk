@@ -57,7 +57,57 @@ estimate_full_series_size <- function(
 # Startup
 # ============================================================================
 
-md <- rws_metadata()
+metadata_cache_file <- "metadata_cache.rds"
+metadata_max_age_days <- 7
+
+read_or_download_metadata <- function(
+        cache_file = metadata_cache_file,
+        max_age_days = metadata_max_age_days
+) {
+    
+    cache_is_fresh <- file.exists(cache_file) &&
+        difftime(
+            Sys.time(),
+            file.info(cache_file)$mtime,
+            units = "days"
+        ) <= max_age_days
+    
+    if (cache_is_fresh) {
+        
+        message("Reading metadata from cache")
+        
+        return(
+            readRDS(cache_file)
+        )
+    }
+    
+    message("Downloading fresh metadata")
+    
+    md <- rwsapi::rws_metadata()
+    
+    # Atomisch schrijven: eerst tijdelijk bestand,
+    # daarna vervangen. Dit voorkomt een kapotte cache.
+    tmp_file <- paste0(
+        cache_file,
+        ".tmp"
+    )
+    
+    saveRDS(
+        md,
+        tmp_file,
+        compress = "xz"
+    )
+    
+    file.rename(
+        tmp_file,
+        cache_file
+    )
+    
+    md
+}
+
+
+md <- read_or_download_metadata()
 
 catalogue <- md$content$locatielijst %>%
     full_join(md$content$aquometadatalocatielijst) %>%
@@ -72,9 +122,7 @@ parameters <- catalogue %>%
 # Koppelen met Rijkswater
 # Koppelen met groepen uit meetplan
 
-# ============================================================================
-# UI
-# ============================================================================
+#== UI ============================================
 
 ui <- fluidPage(
     
@@ -89,7 +137,7 @@ ui <- fluidPage(
             selectizeInput(
                 "parameter",
                 "Parameter",
-                choices = parameters,
+                choices = NULL,
                 selected = NULL,
                 options = list(
                     placeholder = "Choose a parameter"
@@ -212,6 +260,18 @@ server <- function(input, output, session) {
         full_data_available(FALSE)
         
         disable("export_csv")
+        
+    })
+    
+    observe({
+        
+        updateSelectizeInput(
+            session,
+            "parameter",
+            choices = parameters,
+            selected = "Massaconcentratie nitraat in Oppervlaktewater uitgedrukt in stikstof / opgeloste fractie in mg/l",
+            server = TRUE
+        )
         
     })
     

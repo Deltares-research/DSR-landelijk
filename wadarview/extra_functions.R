@@ -266,6 +266,7 @@ rws_metadata <- function(
       BioTaxon = T,
       Organen = T,
       WaardeBewerkingsMethoden = T,
+      MeetApparaten = T,
       ProcesTypes = T,
       Groeperingen = T
     )
@@ -562,5 +563,44 @@ simplify_df <- function(df, outputFormat = c("nested", "attributed")) {
     return(df_simplified)} else{
       return(df_nested)
     }
+}
+
+
+estimate_timestep_seconds <- function(dat) {
+  
+  # Geen of te weinig data
+  if (is.null(dat) || nrow(dat) < 2)
+    return(NA_real_)
+  
+  # Tijdstippen naar POSIXct
+  ts <- lubridate::as_datetime(dat$tijdstip)
+  
+  # Verwijder missende waarden
+  ts <- ts[!is.na(ts)]
+  
+  if (length(ts) < 2)
+    return(NA_real_)
+  
+  # Sorteer en verwijder duplicaten
+  ts <- sort(unique(ts))
+  
+  if (length(ts) < 2)
+    return(NA_real_)
+  
+  # Tijdsverschillen in seconden
+  dt <- diff(as.numeric(ts))
+  
+  # Alleen positieve eindige verschillen
+  dt <- dt[
+    is.finite(dt) &
+      !is.na(dt) &
+      dt > 0
+  ]
+  
+  if (length(dt) == 0)
+    return(NA_real_)
+  
+  median(dt)
+  
 }
 
