@@ -83,7 +83,7 @@ read_or_download_metadata <- function(
     
     message("Downloading fresh metadata")
     
-    md <- rwsapi::rws_metadata()
+    md <- rws_metadata()
     
     # Atomisch schrijven: eerst tijdelijk bestand,
     # daarna vervangen. Dit voorkomt een kapotte cache.
@@ -134,6 +134,25 @@ ui <- fluidPage(
         
         sidebarPanel(
             
+            div(
+                style = "
+            display: flex;
+            align-items: center;
+            margin-bottom: 18px;
+        ",
+                
+                tags$img(
+                    src = "deltares_logo_blauw.png",
+                    alt = "Application logo",
+                    style = "
+                max-width: 180px;
+                max-height: 80px;
+                width: auto;
+                height: auto;
+            "
+                )
+            ),
+            
             selectizeInput(
                 "parameter",
                 "Parameter",
@@ -169,8 +188,25 @@ ui <- fluidPage(
             downloadButton(
                 "export_csv",
                 "Export CSV"
-            )
+            ),
             
+            hr(),
+            
+            div(
+                class = "app-contact",
+                
+                tags$small(
+                    strong("Contact"),
+                    br(),
+                    "Willem Stolte",
+                    br(),
+                    
+                    tags$a(
+                        href = "mailto:your.email@example.com",
+                        "your.email@example.com"
+                    )
+                )
+            )
         ),
         
         mainPanel(
