@@ -11,7 +11,15 @@ library(DT)
 library(shinyAce)
 library(glue)
 library(jsonlite)
+library(readr)
 source("extra_functions.R")
+
+## todo
+## bij temperatuur, salinteit, misschien ook zuurstof? laat ook bemonsteringssoort.code kiezen
+## bij bemonsteringssoort.code == VERTMNWS : toon ctd vertikale profielen voor
+## 
+## Bij waterhoogte keuzes toevoegen voor procestype, typering en groepering
+## 
 
 max_full_download_rows <- 250000
 
@@ -53,11 +61,9 @@ estimate_full_series_size <- function(
     
 }
 
-# ============================================================================
-# Startup
-# ============================================================================
+# Startup ==========================================================================
 
-metadata_cache_file <- "metadata_cache.rds"
+metadata_cache_file <- "data/metadata_cache.rds"
 metadata_max_age_days <- 7
 
 read_or_download_metadata <- function(
@@ -118,6 +124,8 @@ parameters <- catalogue %>%
     arrange(parameter_wat_omschrijving) %>%
     pull(parameter_wat_omschrijving)
 
+coupling_cat_rw <- read_csv2("data/koppeling_meetpunten_rijkswateren.csv")
+
 # ToDo
 # Koppelen met Rijkswater
 # Koppelen met groepen uit meetplan
@@ -150,6 +158,25 @@ ui <- fluidPage(
                 width: auto;
                 height: auto;
             "
+                )
+            ),
+            
+            selectizeInput(
+                "rijkswater",
+                "Water system",
+                choices = c(
+                    "all water systems",
+                    sort(
+                        unique(
+                            na.omit(
+                                coupling_cat_rw$watersysteem_id
+                            )
+                        )
+                    )
+                ),
+                selected = "all water systems",
+                options = list(
+                    placeholder = "Choose water system"
                 )
             ),
             
@@ -203,7 +230,7 @@ ui <- fluidPage(
                     
                     tags$a(
                         href = "mailto:your.email@example.com",
-                        "your.email@example.com"
+                        "willem.stolte@deltares.nl"
                     )
                 )
             )
@@ -273,9 +300,7 @@ ui <- fluidPage(
     )
 )
 
-# ============================================================================
-# SERVER
-# ============================================================================
+# SERVER ======================================================================
 
 server <- function(input, output, session) {
     
@@ -311,9 +336,7 @@ server <- function(input, output, session) {
         
     })
     
-    # --------------------------------------------------------------------------
-    # Empty map
-    # --------------------------------------------------------------------------
+    # Empty map --------------------------------------------------------------
     
     output$map <- renderLeaflet({
         
@@ -328,57 +351,139 @@ server <- function(input, output, session) {
         
     })
     
-    # --------------------------------------------------------------------------
-    # Load locations only after parameter is selected
-    # --------------------------------------------------------------------------
+    # Load locations only after parameter is selected --------------------------------------------------------------------------
+
+    rijkswater_codes <- reactive({
+        
+        req(input$rijkswater)
+        
+        if (identical(input$rijkswater, "all water systems")) {
+            return(NULL)
+        }
+        
+        coupling_cat_rw |>
+            dplyr::filter(
+                watersysteem_id == input$rijkswater
+            ) |>
+            dplyr::pull(locatie_code) |>
+            as.character() |>
+            trimws() |>
+            tolower() |>
+            unique()
+    })
+    
     
     parameter_locations <- reactive({
         
         req(input$parameter)
+        req(input$rijkswater)
         
-        withProgress(
-            message = paste("Loading locations for", input$parameter),
+        locs <- withProgress(
+            message = paste(
+                "Loading locations for",
+                input$parameter
+            ),
             value = 0,
             {
                 
                 rws_wfsLatestObsMod(
                     parFilter = input$parameter,
-                    keepFromYear = 2026
-                ) %>% 
-                    sf::st_transform(4326)
-                
+                    keepFromYear = 2024
+                )
             }
         )
         
-    })
+        # Geen bruikbaar WFS-resultaat
+        if (
+            is.null(locs) ||
+            nrow(locs) == 0L ||
+            !"CODE" %in% names(locs)
+        ) {
+            return(
+                sf::st_sf(
+                    CODE = character(),
+                    geometry = sf::st_sfc(crs = 4326)
+                )
+            )
+        }
+        
+        locs <- sf::st_transform(
+            locs,
+            4326
+        )
+        
+        # Bij "all water systems" geen watersysteemfilter toepassen
+        if (identical(input$rijkswater, "all water systems")) {
+            return(locs)
+        }
+        
+        codes <- rijkswater_codes()
+        
+        # Gekozen watersysteem heeft zelf geen gekoppelde codes
+        if (
+            is.null(codes) ||
+            length(codes) == 0L
+        ) {
+            return(locs[0, ])
+        }
+        
+        locs |>
+            dplyr::filter(
+                tolower(trimws(as.character(CODE))) %in% codes
+            )
+    })    
     
-    # --------------------------------------------------------------------------
-    # Update map
-    # --------------------------------------------------------------------------
+    # old_parameter_locations <- reactive({
+    #     
+    #     req(input$parameter)
+    #     
+    #     withProgress(
+    #         message = paste("Loading locations for", input$parameter),
+    #         value = 0,
+    #         {
+    #             
+    #             rws_wfsLatestObsMod(
+    #                 parFilter = input$parameter,
+    #                 keepFromYear = 2026
+    #             ) %>% 
+    #                 sf::st_transform(4326)
+    #             
+    #         }
+    #     )
+    #     
+    # })
+    
+    # Update map -------------------------------------------------------------------
     
     observeEvent(parameter_locations(), {
         
         locs <- parameter_locations()
         
-        if(nrow(locs) == 0){
+        if (
+            is.null(locs) ||
+            nrow(locs) == 0L
+        ) {
             
-            leafletProxy("map") %>%
-                clearMarkers()
+            leafletProxy("map") |>
+                clearMarkers() |>
+                clearControls()
+            
+            selected_station_rv(NULL)
+            display_data(NULL)
             
             showNotification(
                 paste(
                     "No locations found for",
                     input$parameter,
-                    "after the selected year filter."
+                    "in",
+                    input$rijkswater
                 ),
                 type = "warning",
-                duration = 5
+                duration = 6
             )
             
             return()
-            
-        }
-        
+        }        
         # print(names(locs))
         
         # print(class(locs$WAARDE_LAATSTE_METING))
@@ -437,10 +542,108 @@ server <- function(input, output, session) {
                 values = locs$plotvalue#,
                 # title = input$parameter
             )        
+    })
+    
+    #== rezoom map on rijkswater ========================================================
+    
+    observeEvent(parameter_locations(), {
+        
+        locs <- parameter_locations()
+        
+        if (nrow(locs) == 0) {
+            
+            leafletProxy("map") |>
+                clearMarkers() |>
+                clearControls()
+            
+            showNotification(
+                "No locations found.",
+                type = "warning"
+            )
+            
+            return()
+        }
+        
+        # Waarden voorbereiden
+        locs <- locs |>
+            dplyr::mutate(
+                plotvalue = suppressWarnings(
+                    as.numeric(WAARDE_LAATSTE_METING)
+                )
+            ) |>
+            dplyr::filter(
+                is.finite(plotvalue)
+            )
+        
+        if (nrow(locs) == 0) {
+            return()
+        }
+        
+        # Kleuren
+        pal <- leaflet::colorNumeric(
+            palette = "viridis",
+            domain = locs$plotvalue
+        )
+        
+        # Markers tekenen
+        proxy <- leafletProxy("map") |>
+            clearMarkers() |>
+            clearControls() |>
+            addCircleMarkers(
+                data = locs,
+                layerId = ~CODE,
+                radius = 6,
+                stroke = TRUE,
+                weight = 1,
+                color = "black",
+                fillColor = ~pal(plotvalue),
+                fillOpacity = 0.9,
+                label = ~sprintf(
+                    "%s: %.2f",
+                    CODE,
+                    plotvalue
+                ),
+                popup = ~paste0(
+                    "<b>", NAAM, "</b><br>",
+                    CODE, "<br>",
+                    round(plotvalue, 2)
+                )
+            ) |>
+            addLegend(
+                position = "bottomright",
+                pal = pal,
+                values = locs$plotvalue,
+                title = sub(".*\\s", "", input$parameter)
+            )
+        
+        # HIER komt de zoomcode
+        if (nrow(locs) == 1) {
+            
+            xy <- sf::st_coordinates(locs)[1, ]
+            
+            proxy |>
+                setView(
+                    lng = xy[["X"]],
+                    lat = xy[["Y"]],
+                    zoom = 11
+                )
+            
+        } else {
+            
+            bbox <- sf::st_bbox(locs)
+            
+            proxy |>
+                fitBounds(
+                    lng1 = unname(bbox["xmin"]),
+                    lat1 = unname(bbox["ymin"]),
+                    lng2 = unname(bbox["xmax"]),
+                    lat2 = unname(bbox["ymax"])
+                )
+        }
+        
     })    
-    # --------------------------------------------------------------------------
-    # Selected station
-    # --------------------------------------------------------------------------
+    
+    # Selected station --------------------------------------------------------------------------
     
     observeEvent(input$map_marker_click, {
         
@@ -502,9 +705,7 @@ server <- function(input, output, session) {
         
     })
     
-    # --------------------------------------------------------------------------
-    # Metadata for clicked station
-    # --------------------------------------------------------------------------
+    # Metadata for clicked station ------------------------------------------------------------------
     
     selected_metadata <- reactive({
         
@@ -532,10 +733,12 @@ server <- function(input, output, session) {
             "grootheid",
             "parameter",
             "hoedanigheid",
-            "eenheid"
+            "eenheid",
+            "typering",
+            "groepering"
         )
         
-        preview_periods <- c(7L, 30L, 365L)
+        preview_periods <- c(7L, 30L, 365L, 1095)
         minimum_rows <- 10L
         
         withProgress(
@@ -637,6 +840,7 @@ server <- function(input, output, session) {
             }
         )
     })    
+    
     #=== empty cache ===========================
     
     observeEvent(preview_data(), {
@@ -653,18 +857,15 @@ server <- function(input, output, session) {
         
     })
     
-    # --------------------------------------------------------------------------
-    # Preview plot
-    # --------------------------------------------------------------------------
+    # Preview plot ---------------------------------------------------------------
     
     output$preview_plot <- renderPlot({
         
-        print("renderPlot")
-        
-        print(class(display_data()))
-        
-        str(display_data())
-        
+        # diagnostics
+        # print("renderPlot")
+        # print(class(display_data()))
+        # str(display_data())
+
         dat <- display_data()
         
         req(dat)
@@ -714,7 +915,7 @@ server <- function(input, output, session) {
                     numeriekewaarde
                 )
             ) +
-                geom_line(aes(color = interaction(bemonsteringshoogte, referentievlak)))
+                geom_line(aes(color = referentievlak))
             
         } else {
             
@@ -726,15 +927,16 @@ server <- function(input, output, session) {
                 )
             ) +
                 geom_point(
-                    aes(color = interaction(bemonsteringshoogte, referentievlak)),
+                    aes(color = referentievlak),
                     shape = 21,
                     size = 3,
                     fill = "white"
                 ) +
                 geom_smooth(
-                    aes(color = interaction(bemonsteringshoogte, referentievlak)),
-                    method = "loess",
-                    span = 0.7,
+                    aes(color = referentievlak),
+                    method = "gam",
+                    formula = y ~ s(x, bs = "ps", k = 200, m = c(2,1)),
+                    # span = 0.7,
                     se = TRUE
                 ) 
             
@@ -750,12 +952,13 @@ server <- function(input, output, session) {
             labs(
                 title = paste(
                     selected_station(),
-                    unique(dat$parameter_wat_omschrijving)[1]
+                    "\n",
+                    input$parameter
                 ),
                 subtitle = subtitle_text,
                 x = NULL,
                 y = unique(dat$eenheid.code)[1],
-                color = "vert ref; height"
+                color = "height | vert ref"
             )        
     })
     
@@ -918,10 +1121,10 @@ observe({
     }
     
     # diagnostics
-    print("Updating Ace")
-    print(class(txt))
-    print(length(txt))
-    print(txt)
+    # print("Updating Ace")
+    # print(class(txt))
+    # print(length(txt))
+    # print(txt)
     
     updateAceEditor(
         session,
@@ -1043,14 +1246,29 @@ output$download_r_script <- downloadHandler(
     output$location_status <- renderUI({
         
         req(input$parameter)
+        req(input$rijkswater)
         
         locs <- parameter_locations()
         
-        if(nrow(locs) == 0){
+        n_locations <- if (
+            is.null(locs) ||
+            !"CODE" %in% names(locs)
+        ) {
+            0L
+        } else {
+            nrow(locs)
+        }
+        
+        if (n_locations == 0L) {
             
             div(
                 style = "color:red;",
-                "No active locations found."
+                paste(
+                    "No active locations found for",
+                    input$parameter,
+                    "in",
+                    input$rijkswater
+                )
             )
             
         } else {
@@ -1058,15 +1276,12 @@ output$download_r_script <- downloadHandler(
             div(
                 style = "color:green;",
                 paste(
-                    nrow(locs),
+                    n_locations,
                     "locations available"
                 )
             )
-            
         }
-        
     })
-
     #=== Full data =========================
     
     full_data <- eventReactive(
@@ -1245,9 +1460,7 @@ output$download_r_script <- downloadHandler(
     })
     
     
-    # --------------------------------------------------------------------------
-    # CSV export
-    # --------------------------------------------------------------------------
+    # CSV export --------------------------------------------------------------
     
     output$export_csv <- downloadHandler(
         
@@ -1274,8 +1487,6 @@ output$download_r_script <- downloadHandler(
     )
 }
 
-# ============================================================================
-# Run
-# ============================================================================
+# Run =============================================================
 
-shinyApp(ui, server)
+shinyApp(ui, server) 
