@@ -300,6 +300,17 @@ ui <- fluidPage(
     )
 )
 
+filters <- c(
+    "compartiment",
+    "grootheid",
+    "parameter",
+    "hoedanigheid",
+    "eenheid",
+    "typering",
+    "groepering",
+    "procestype"
+)
+
 # SERVER ======================================================================
 
 server <- function(input, output, session) {
@@ -389,7 +400,11 @@ server <- function(input, output, session) {
                 rws_wfsLatestObsMod(
                     parFilter = input$parameter,
                     keepFromYear = 2024
-                )
+                ) %>%
+                    mutate(across(
+                        where(is.numeric),
+                        ~ replace_when(.x, .x == 999999999999 ~ NA_real_)
+                    ))
             }
         )
         
@@ -728,15 +743,7 @@ server <- function(input, output, session) {
         
         req(nrow(meta) == 1)
         
-        filters <- c(
-            "compartiment",
-            "grootheid",
-            "parameter",
-            "hoedanigheid",
-            "eenheid",
-            "typering",
-            "groepering"
-        )
+        filters <- filters
         
         preview_periods <- c(7L, 30L, 365L, 1095)
         minimum_rows <- 10L
@@ -764,7 +771,17 @@ server <- function(input, output, session) {
                         metadata = meta,
                         start_date = Sys.Date() - days,
                         end_date = Sys.Date(),
-                        filters = filters
+                        filters = 
+                            filters <- c(
+                                "compartiment",
+                                "grootheid",
+                                "parameter",
+                                "hoedanigheid",
+                                "eenheid",
+                                "typering",
+                                "groepering",
+                                "procestype"
+                            )
                     )
                     
                     response <- tryCatch(
@@ -864,7 +881,7 @@ server <- function(input, output, session) {
         # diagnostics
         # print("renderPlot")
         # print(class(display_data()))
-        # str(display_data())
+        str(display_data())
 
         dat <- display_data()
         
@@ -912,10 +929,11 @@ server <- function(input, output, session) {
                 dat,
                 aes(
                     as_datetime(tijdstip),
-                    numeriekewaarde
+                    numeriekewaarde,
+                    color = ifelse(grootheid.code == "WATHTE", referentievlak, procestype)
                 )
             ) +
-                geom_line(aes(color = referentievlak))
+                geom_line()
             
         } else {
             
@@ -923,17 +941,18 @@ server <- function(input, output, session) {
                 dat,
                 aes(
                     as_datetime(tijdstip),
-                    numeriekewaarde
+                    numeriekewaarde,
+                    color = ifelse(grootheid.code != "WATHTE", referentievlak, procestype)
                 )
             ) +
                 geom_point(
-                    aes(color = referentievlak),
+                    aes(),
                     shape = 21,
                     size = 3,
                     fill = "white"
                 ) +
                 geom_smooth(
-                    aes(color = referentievlak),
+                    aes(),
                     method = "gam",
                     formula = y ~ s(x, bs = "ps", k = 200, m = c(2,1)),
                     # span = 0.7,
@@ -958,7 +977,7 @@ server <- function(input, output, session) {
                 subtitle = subtitle_text,
                 x = NULL,
                 y = unique(dat$eenheid.code)[1],
-                color = "height | vert ref"
+                color = ifelse(dat$grootheid.code != "WATHTE", "referentievlak", "procestype")
             )        
     })
     
@@ -1084,7 +1103,10 @@ query <- rws_observation_query(
         "grootheid",
         "parameter",
         "hoedanigheid",
-        "eenheid"
+        "eenheid",
+        "groepering",
+        "typering",
+        "procestype"
     )
 )
 
@@ -1349,13 +1371,7 @@ output$download_r_script <- downloadHandler(
                         metadata = meta,
                         start_date = as.Date("1970-01-01"),
                         end_date = Sys.Date(),
-                        filters = c(
-                            "compartiment",
-                            "grootheid",
-                            "parameter",
-                            "hoedanigheid",
-                            "eenheid"
-                        )
+                        filters = filters
                     )
                     
                     incProgress(
